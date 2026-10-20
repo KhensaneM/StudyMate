@@ -1,4 +1,3 @@
-
 enum TaskPriority { low, medium, high }
 
 class StudyTask {
