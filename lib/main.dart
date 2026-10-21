@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'models/study_task.dart';
 import 'pages/add_task_page.dart';
+import 'services/study_storage.dart';
 
 void main() {
   runApp(const StudyMateApp());
@@ -74,17 +75,81 @@ class _StudyMateHomeState extends State<StudyMateHome> {
   int _selectedIndex = 0;
   String _searchQuery = '';
   TaskFilter _filter = TaskFilter.all;
+  bool _isLoadingTasks = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTasks();
+  }
+
+  /// Loads assignments saved on this device.
+  Future<void> _loadTasks() async {
+    try {
+      final savedTasks = await StudyStorage.loadTasks();
+
+      if (!mounted) return;
+
+      setState(() {
+        _tasks
+          ..clear()
+          ..addAll(savedTasks);
+        _isLoadingTasks = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Could not load StudyMate assignments: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingTasks = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not load saved assignments. Please try again.'),
+        ),
+      );
+    }
+  }
+
+  /// Saves the current assignments to local device storage.
+  Future<void> _saveTasks() async {
+    try {
+      await StudyStorage.saveTasks(List<StudyTask>.from(_tasks));
+    } catch (error, stackTrace) {
+      debugPrint('Could not save StudyMate assignments: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save assignments to this device.'),
+        ),
+      );
+    }
+  }
 
   int get _completedCount => _tasks.where((task) => task.isCompleted).length;
 
   int get _pendingCount => _tasks.where((task) => !task.isCompleted).length;
 
-  double get _completionPercentage =>
-      _tasks.isEmpty ? 0 : _completedCount / _tasks.length;
+  double get _completionPercentage {
+    if (_tasks.isEmpty) return 0;
+    return _completedCount / _tasks.length;
+  }
 
   bool _isOverdue(StudyTask task) {
     final today = DateUtils.dateOnly(DateTime.now());
-    return !task.isCompleted && task.deadline.isBefore(today);
+    final deadline = DateUtils.dateOnly(task.deadline);
+
+    return !task.isCompleted && deadline.isBefore(today);
+  }
+
+  bool _isDueToday(StudyTask task) {
+    return DateUtils.isSameDay(task.deadline, DateTime.now());
   }
 
   List<StudyTask> get _filteredTasks {
@@ -121,6 +186,10 @@ class _StudyMateHomeState extends State<StudyMateHome> {
       _tasks.add(newTask);
     });
 
+    await _saveTasks();
+
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Assignment added successfully!')),
     );
@@ -136,26 +205,41 @@ class _StudyMateHomeState extends State<StudyMateHome> {
 
     setState(() {
       final index = _tasks.indexWhere((item) => item.id == task.id);
+
       if (index != -1) {
         _tasks[index] = updatedTask;
       }
     });
+
+    await _saveTasks();
+
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Assignment updated successfully!')),
     );
   }
 
-  void _toggleTask(StudyTask task, bool value) {
+  Future<void> _toggleTask(StudyTask task, bool value) async {
     setState(() {
-      task.isCompleted = value;
+      final index = _tasks.indexWhere((item) => item.id == task.id);
+
+      if (index != -1) {
+        _tasks[index].isCompleted = value;
+      }
     });
+
+    await _saveTasks();
   }
 
-  void _deleteTask(StudyTask task) {
+  Future<void> _deleteTask(StudyTask task) async {
     setState(() {
       _tasks.removeWhere((item) => item.id == task.id);
     });
+
+    await _saveTasks();
+
+    if (!mounted) return;
 
     ScaffoldMessenger.of(
       context,
@@ -205,10 +289,12 @@ class _StudyMateHomeState extends State<StudyMateHome> {
         ],
       ),
       body: SafeArea(
-        child: IndexedStack(index: _selectedIndex, children: pages),
+        child: _isLoadingTasks
+            ? const Center(child: CircularProgressIndicator())
+            : IndexedStack(index: _selectedIndex, children: pages),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddTask,
+        onPressed: _isLoadingTasks ? null : _openAddTask,
         icon: const Icon(Icons.add_rounded),
         label: const Text('Add Task'),
       ),
@@ -243,19 +329,62 @@ class _StudyMateHomeState extends State<StudyMateHome> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
       children: [
-        Text(
-          'Hello, Student! 👋',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF29213B),
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFF0EAFF), Color(0xFFE5DEFF)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFE0D5FF)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Hello, Student! 👋',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF30234F),
+                            letterSpacing: -0.6,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Your goals, your pace. Let’s make today count.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.5,
+                        color: Color(0xFF655780),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(19),
+                ),
+                child: const Icon(
+                  Icons.auto_stories_rounded,
+                  size: 31,
+                  color: Color(0xFF7856D8),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          'Small steps every day lead to big achievements.',
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-        ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         _buildProgressCard(),
         const SizedBox(height: 20),
         Row(
@@ -268,7 +397,7 @@ class _StudyMateHomeState extends State<StudyMateHome> {
                 color: const Color(0xFF7856D8),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: SummaryCard(
                 title: 'Pending',
@@ -277,7 +406,7 @@ class _StudyMateHomeState extends State<StudyMateHome> {
                 color: const Color(0xFFDE8A27),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: SummaryCard(
                 title: 'Completed',
@@ -292,16 +421,20 @@ class _StudyMateHomeState extends State<StudyMateHome> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Upcoming Assignments',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                'Upcoming Assignments',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
             ),
             TextButton(
               onPressed: () {
                 setState(() {
                   _selectedIndex = 1;
+                  _filter = TaskFilter.all;
+                  _searchQuery = '';
                 });
               },
               child: const Text('View all'),
@@ -343,6 +476,13 @@ class _StudyMateHomeState extends State<StudyMateHome> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF7856D8).withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -418,6 +558,8 @@ class _StudyMateHomeState extends State<StudyMateHome> {
           style: TextStyle(color: Colors.grey.shade600),
         ),
         const SizedBox(height: 20),
+        _taskSummary(),
+        const SizedBox(height: 20),
         TextField(
           key: const Key('task_search_field'),
           onChanged: (value) {
@@ -472,6 +614,68 @@ class _StudyMateHomeState extends State<StudyMateHome> {
     );
   }
 
+  Widget _taskSummary() {
+    return Row(
+      children: [
+        Expanded(
+          child: _smallSummaryCard(
+            'Total',
+            _tasks.length,
+            Icons.assignment_outlined,
+            const Color(0xFF7856D8),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _smallSummaryCard(
+            'Pending',
+            _pendingCount,
+            Icons.schedule_rounded,
+            const Color(0xFFDE8A27),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _smallSummaryCard(
+            'Completed',
+            _completedCount,
+            Icons.check_circle_outline_rounded,
+            const Color(0xFF26966D),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _smallSummaryCard(
+    String title,
+    int value,
+    IconData icon,
+    Color color,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 21),
+            const SizedBox(height: 8),
+            Text(
+              '$value',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 21),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              title,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _filterChip(String label, TaskFilter filter) {
     return FilterChip(
       label: Text(label),
@@ -485,7 +689,23 @@ class _StudyMateHomeState extends State<StudyMateHome> {
   }
 
   Widget _buildPlannerPage() {
-    final sortedTasks = [..._tasks]
+    final overdueTasks = _tasks.where(_isOverdue).toList()
+      ..sort((a, b) => a.deadline.compareTo(b.deadline));
+
+    final todayTasks =
+        _tasks.where((task) => !task.isCompleted && _isDueToday(task)).toList()
+          ..sort((a, b) => a.deadline.compareTo(b.deadline));
+
+    final upcomingTasks =
+        _tasks
+            .where(
+              (task) =>
+                  !task.isCompleted && !_isOverdue(task) && !_isDueToday(task),
+            )
+            .toList()
+          ..sort((a, b) => a.deadline.compareTo(b.deadline));
+
+    final completedTasks = _tasks.where((task) => task.isCompleted).toList()
       ..sort((a, b) => a.deadline.compareTo(b.deadline));
 
     return ListView(
@@ -502,23 +722,128 @@ class _StudyMateHomeState extends State<StudyMateHome> {
           'Plan ahead and stay ready for every deadline.',
           style: TextStyle(color: Colors.grey.shade600),
         ),
-        const SizedBox(height: 24),
-        if (sortedTasks.isEmpty)
+        const SizedBox(height: 20),
+        _smallSummaryCard(
+          'Tasks scheduled',
+          _tasks.length,
+          Icons.calendar_month_rounded,
+          const Color(0xFF7856D8),
+        ),
+        const SizedBox(height: 20),
+        if (_tasks.isEmpty)
           _emptyState(
             icon: Icons.calendar_month_outlined,
             title: 'No deadlines scheduled yet.',
             message: 'Add an assignment to see it in your planner.',
           )
-        else
-          ...sortedTasks.map(
-            (task) => AssignmentCard(
-              task: task,
-              isOverdue: _isOverdue(task),
-              onChanged: (value) => _toggleTask(task, value),
-              onDelete: () => _deleteTask(task),
-              onEdit: () => _editTask(task),
+        else ...[
+          if (overdueTasks.isNotEmpty)
+            _plannerSection(
+              title: 'Overdue',
+              subtitle: 'These assignments need your attention.',
+              icon: Icons.warning_amber_rounded,
+              color: const Color(0xFFD84C4C),
+              tasks: overdueTasks,
             ),
+          if (todayTasks.isNotEmpty)
+            _plannerSection(
+              title: 'Due Today',
+              subtitle: 'Focus on these assignments today.',
+              icon: Icons.today_rounded,
+              color: const Color(0xFFDE8A27),
+              tasks: todayTasks,
+            ),
+          if (upcomingTasks.isNotEmpty)
+            _plannerSection(
+              title: 'Upcoming',
+              subtitle: 'Your next deadlines.',
+              icon: Icons.event_available_rounded,
+              color: const Color(0xFF7856D8),
+              tasks: upcomingTasks,
+            ),
+          if (completedTasks.isNotEmpty)
+            _plannerSection(
+              title: 'Completed',
+              subtitle: 'Great work on finishing these tasks!',
+              icon: Icons.check_circle_outline_rounded,
+              color: const Color(0xFF26966D),
+              tasks: completedTasks,
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _plannerSection({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required List<StudyTask> tasks,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12, top: 8),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: color.withValues(alpha: 0.12),
+                child: Text(
+                  '${tasks.length}',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
+        ),
+        ...tasks.map(
+          (task) => AssignmentCard(
+            task: task,
+            isOverdue: _isOverdue(task),
+            onChanged: (value) => _toggleTask(task, value),
+            onDelete: () => _deleteTask(task),
+            onEdit: () => _editTask(task),
+          ),
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }
@@ -641,7 +966,11 @@ class AssignmentCard extends StatelessWidget {
           children: [
             Checkbox(
               value: task.isCompleted,
-              onChanged: (value) => onChanged(value ?? false),
+              onChanged: (value) {
+                if (value != null) {
+                  onChanged(value);
+                }
+              },
             ),
             Expanded(
               child: Padding(

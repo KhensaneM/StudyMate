@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studymate/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   // HELPER: Create an assignment.
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+  Future<void> pumpStudyMate(WidgetTester tester) async {
+    await tester.pumpWidget(const StudyMateApp());
+    await tester.pumpAndSettle();
+  }
+
   Future<void> addTestTask(WidgetTester tester) async {
     await tester.tap(find.text('Add Task'));
     await tester.pumpAndSettle();
@@ -46,7 +56,7 @@ void main() {
 
   // TEST 1: Dashboard displays correctly.
   testWidgets('Dashboard displays correctly', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     expect(find.text('StudyMate'), findsOneWidget);
     expect(find.text('Hello, Student! 👋'), findsOneWidget);
@@ -63,7 +73,7 @@ void main() {
 
   // TEST 2: Add Task button opens the form.
   testWidgets('Add Task button opens assignment form', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await tester.tap(find.text('Add Task'));
     await tester.pumpAndSettle();
@@ -75,7 +85,7 @@ void main() {
 
   // TEST 3: Tasks tab displays empty state.
   testWidgets('Tasks navigation displays empty state', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await tester.tap(find.text('Tasks'));
     await tester.pumpAndSettle();
@@ -87,7 +97,7 @@ void main() {
 
   // TEST 4: Planner displays empty state.
   testWidgets('Planner navigation displays empty state', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await tester.tap(find.text('Planner'));
     await tester.pumpAndSettle();
@@ -98,7 +108,7 @@ void main() {
 
   // TEST 5: User can create an assignment.
   testWidgets('User can create an assignment', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await addTestTask(tester);
 
@@ -116,7 +126,7 @@ void main() {
   testWidgets('Dashboard updates after completing an assignment', (
     tester,
   ) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await addTestTask(tester);
 
@@ -155,7 +165,7 @@ void main() {
 
   // TEST 7: User can delete an assignment.
   testWidgets('User can delete an assignment', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await addTestTask(tester);
 
@@ -177,7 +187,7 @@ void main() {
 
   // TEST 8: Planner displays assignments.
   testWidgets('Task remains visible in the Planner', (tester) async {
-    await tester.pumpWidget(const StudyMateApp());
+    await pumpStudyMate(tester);
 
     await addTestTask(tester);
 
