@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local backup files
+lib/main.dart.backup
+lib/main.dart.backup-before-storage
+test/widget_test.dart.save
