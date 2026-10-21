@@ -51,9 +51,14 @@ void main() {
     expect(find.text('StudyMate'), findsOneWidget);
     expect(find.text('Hello, Student! 👋'), findsOneWidget);
     expect(find.text('Your Study Progress'), findsOneWidget);
-    expect(find.text('Upcoming Assignments'), findsOneWidget);
     expect(find.text('0 of 0 tasks completed'), findsOneWidget);
     expect(find.text('0% complete — Keep going!'), findsOneWidget);
+
+    // Scroll down so the ListView builds the upcoming assignments heading.
+    await tester.drag(find.byType(ListView).first, const Offset(0, -400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Upcoming Assignments'), findsOneWidget);
   });
 
   // TEST 2: Add Task button opens the form.
